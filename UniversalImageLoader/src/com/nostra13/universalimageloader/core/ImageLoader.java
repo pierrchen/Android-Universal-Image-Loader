@@ -186,6 +186,8 @@ public class ImageLoader {
 
 		ImageSize targetSize = getImageSizeScaleTo(imageView);
 		String memoryCacheKey = MemoryCacheKeyUtil.generateKey(url, targetSize);
+		
+		Log.d(TAG,"ImageViewCache:"+imageView + ":" + memoryCacheKey);
 		cacheKeyForImageView.put(imageView, memoryCacheKey);
 
 		Bitmap bmp = configuration.memoryCache.get(memoryCacheKey);

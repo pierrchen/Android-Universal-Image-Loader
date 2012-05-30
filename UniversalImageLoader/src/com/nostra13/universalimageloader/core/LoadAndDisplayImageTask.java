@@ -1,11 +1,13 @@
 package com.nostra13.universalimageloader.core;
 
 import java.io.BufferedInputStream;
+import java.io.EOFException;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.MalformedURLException;
+import java.net.SocketTimeoutException;
 import java.net.URL;
 import java.net.URLConnection;
 
@@ -49,14 +51,20 @@ final class LoadAndDisplayImageTask implements Runnable {
 	public void run() {
 		if (configuration.loggingEnabled) Log.i(ImageLoader.TAG, String.format(LOG_START_DISPLAY_IMAGE_TASK, imageLoadingInfo.memoryCacheKey));
 		if (!imageLoadingInfo.isConsistent()) {
+			Log.w(ImageLoader.TAG, "--->>>>>>inconsitent View and URL");
 			return;
 		}
 
 		Bitmap bmp = loadBitmap();
 		if (bmp == null) {
+			Log.e(ImageLoader.TAG,"Failed to load the bitmap for " + imageLoadingInfo.url);
 			return;
 		}
 		if (!imageLoadingInfo.isConsistent()) {
+			Log.d(ImageLoader.TAG, ">>>!!inconsitent" + "view " + imageLoadingInfo.imageView + " should bind with " 
+						+ ImageLoader.getInstance().getLoadingUrlForView(imageLoadingInfo.imageView) + " url " + imageLoadingInfo.url 
+						+ " is out of date. Don't display this image."
+					);
 			return;
 		}
 
@@ -88,6 +96,22 @@ final class LoadAndDisplayImageTask implements Runnable {
 			URL imageUrlForDecoding;
 			if (imageLoadingInfo.options.isCacheOnDisc()) {
 				if (configuration.loggingEnabled) Log.i(ImageLoader.TAG, String.format(LOG_CACHE_IMAGE_ON_DISC, imageLoadingInfo.memoryCacheKey));
+				
+				//Pierr - making the downloading longer than needed
+				
+//				try{
+//					
+//					if(imageLoadingInfo.url.contains("p943444495")){
+//						//make the first picture take longer to download
+//						Log.d(ImageLoader.TAG, "->>> wait 15 seconds...");
+//						Thread.sleep(20000);
+//					} else {
+//						Thread.sleep(5000);
+//					}
+//				}catch(InterruptedException ex){
+//					ex.printStackTrace();
+//				}
+
 				saveImageOnDisc(f);
 				configuration.discCache.put(imageLoadingInfo.url, f);
 				imageUrlForDecoding = f.toURL();
@@ -160,16 +184,31 @@ final class LoadAndDisplayImageTask implements Runnable {
 		URLConnection conn = new URL(imageLoadingInfo.url).openConnection();
 		conn.setConnectTimeout(configuration.httpConnectTimeout);
 		conn.setReadTimeout(configuration.httpReadTimeout);
-		BufferedInputStream is = new BufferedInputStream(conn.getInputStream());
+		
+		BufferedInputStream is = null;
+		
 		try {
+			
+			is = new BufferedInputStream(conn.getInputStream());
 			OutputStream os = new FileOutputStream(targetFile);
 			try {
 				FileUtils.copyStream(is, os);
+				Log.d(ImageLoader.TAG, "image of " + imageLoadingInfo.url + "was saved");
 			} finally {
 				os.close();
 			}
-		} finally {
-			is.close();
+		}catch(SocketTimeoutException ex){
+			//Log.d(ImageLoader.TAG, "SocketTimeoutException when connecting to " + imageLoadingInfo.url);
+			throw new IOException("SocketTimeoutException when downloading " + imageLoadingInfo.url);
+		}catch(EOFException ex) {
+			//https://code.google.com/p/google-http-java-client/issues/detail?id=116
+			//Log.d(ImageLoader.TAG, "EOFException when downloading " + imageLoadingInfo.url);
+			throw new IOException("EOFException when downloading " + imageLoadingInfo.url);
+		}
+		finally {
+			if(is != null){
+				is.close();
+			}
 		}
 	}
 

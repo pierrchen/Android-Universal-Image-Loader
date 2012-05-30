@@ -30,6 +30,9 @@ final class DisplayBitmapTask implements Runnable {
 			if (configuration.loggingEnabled) Log.i(ImageLoader.TAG, String.format(LOG_DISPLAY_IMAGE_IN_IMAGEVIEW, imageLoadingInfo.memoryCacheKey));
 			imageLoadingInfo.imageView.setImageBitmap(bitmap);
 			imageLoadingInfo.listener.onLoadingComplete();
+		}else {
+			
+			Log.w(ImageLoader.TAG, "--->>>>>>inconsitent View and URL");
 		}
 	}
 }
