@@ -6,6 +6,7 @@ import java.util.Map;
 import java.util.WeakHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import android.content.res.Configuration;
 import android.graphics.Bitmap;
@@ -269,16 +270,34 @@ public class ImageLoader {
 		cacheKeyForImageView.remove(imageView);
 	}
 
-	/** Stops all running display image tasks, discards all other scheduled tasks */
+	/** 
+	 * Stops all running display image tasks, discards all other scheduled tasks 
+	 * */
 	public void stop() {
 		if (imageLoadingExecutor != null) {
-			imageLoadingExecutor.shutdown();
+			shutdownThreadPool(imageLoadingExecutor);
 		}
 		if (cachedImageLoadingExecutor != null) {
-			cachedImageLoadingExecutor.shutdown();
+			shutdownThreadPool(cachedImageLoadingExecutor);
 		}
 	}
-
+	/**
+	 * shutdown all the task in the pool
+	 * @param pool which u want to shutdown immediately
+	 */
+	public void shutdownThreadPool( ExecutorService pool) {
+		pool.shutdown();
+		try {
+			pool.shutdownNow();
+			if (pool.awaitTermination(1, TimeUnit.SECONDS)) {
+				Log.e(TAG, "Pool did not terminal");
+			}
+		}catch (InterruptedException ie){
+			pool.shutdownNow();
+			Thread.currentThread().interrupt();
+		}
+	}
+	
 	/**
 	 * Defines image size for loading at memory (for memory economy) by {@link ImageView} parameters.<br />
 	 * Size computing algorithm:<br />
