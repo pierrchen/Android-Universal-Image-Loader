@@ -1,12 +1,14 @@
 package com.nostra13.universalimageloader.core;
 
 import java.io.BufferedOutputStream;
+import java.io.EOFException;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.MalformedURLException;
+import java.net.SocketTimeoutException;
 import java.net.URL;
 
 import android.graphics.Bitmap;
@@ -180,16 +182,24 @@ final class LoadAndDisplayImageTask implements Runnable {
 	}
 
 	private void saveImageOnDisc(File targetFile) throws MalformedURLException, IOException {
-		InputStream is = configuration.downloader.getStream(new URL(imageLoadingInfo.url));
+		InputStream is = null;
 		try {
+			is = configuration.downloader.getStream(new URL(imageLoadingInfo.url));
 			OutputStream os = new BufferedOutputStream(new FileOutputStream(targetFile));
 			try {
 				FileUtils.copyStream(is, os);
+				Log.i(ImageLoader.TAG , "image of " + imageLoadingInfo.url + "was saved");
 			} finally {
 				os.close();
 			}
+		} catch (SocketTimeoutException ex) {
+			throw new IOException("SocketTimeoutException when downloading" + imageLoadingInfo.url);
+		} catch (EOFException ex) {
+			// https://code.google.com/p/google-http-java-client/issues/detail?id=116 
+			throw new IOException("EOFException when downloading" + imageLoadingInfo.url);
 		} finally {
-			is.close();
+			if (is != null)
+				is.close();
 		}
 	}
 
