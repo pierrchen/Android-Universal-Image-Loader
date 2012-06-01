@@ -130,7 +130,7 @@ public final class ImageLoaderConfiguration {
 		private FileNameGenerator discCacheFileNameGenerator = null;
 		private ImageDownloader downloader = null;
 		private DiscCacheAware discCache = null;
-		private boolean loggingEnabled = false;
+		private boolean loggingEnabled = true;
 
 		private DisplayImageOptions defaultDisplayImageOptions = null;
 
