@@ -7,5 +7,5 @@ package com.nostra13.universalimageloader.core.assist;
  * @author Sergey Tarasevich (nostra13[at]gmail[dot]com)
  */
 public enum DecodingType {
-	FAST, MEMORY_SAVING
+	FAST, MEMORY_SAVING, ABSOLUTE_SIZE
 }

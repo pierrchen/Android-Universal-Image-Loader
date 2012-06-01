@@ -41,7 +41,7 @@ public final class ImageLoaderConfiguration {
 	final DiscCacheAware discCache;
 	final DisplayImageOptions defaultDisplayImageOptions;
 	final ThreadFactory displayImageThreadFactory;
-	final boolean loggingEnabled;
+	public static boolean loggingEnabled;
 	final ImageDownloader downloader;
 
 	private ImageLoaderConfiguration(final Builder builder) {
