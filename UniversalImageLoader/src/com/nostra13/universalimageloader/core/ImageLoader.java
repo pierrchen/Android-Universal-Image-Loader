@@ -2,9 +2,12 @@ package com.nostra13.universalimageloader.core;
 
 import java.lang.reflect.Field;
 import java.util.Collections;
+import java.util.LinkedList;
 import java.util.Map;
+import java.util.Queue;
 import java.util.WeakHashMap;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -43,6 +46,7 @@ public class ImageLoader {
 	private ThreadPoolExecutor imageLoadingExecutor;
 	private ImageLoadingListener emptyListener;
 
+	private Queue<Future<?>> imageLoadingTaskFIFO;
 	private Map<ImageView, String> cacheKeyForImageView = Collections.synchronizedMap(new WeakHashMap<ImageView, String>());
 
 	private volatile static ImageLoader instance;
@@ -60,10 +64,11 @@ public class ImageLoader {
 	}
 
 	private ImageLoader() {
+		imageLoadingTaskFIFO = new LinkedList<Future<?>>();
 	}
 
 	/**
-	 * Initializes ImageLoader's singletone instance with configuration. Method shoiuld be called <b>once</b> (each
+	 * initializes imageloader's singletone instance with configuration. Method shoiuld be called <b>once</b> (each
 	 * following call will have no effect)<br />
 	 * 
 	 * @param configuration
@@ -206,10 +211,14 @@ public class ImageLoader {
 			if (isImageCachedOnDisc) {
 				cachedImageLoadingExecutor.submit(displayImageTask);
 			} else {
-				imageLoadingExecutor.submit(displayImageTask);
+				if (imageLoadingExecutor.getActiveCount() == 2)
+					imageLoadingTaskFIFO.poll().cancel(true);
+				Future<?> future = imageLoadingExecutor.submit(displayImageTask);
+				imageLoadingTaskFIFO.add(future);
 				if (ImageLoaderConfiguration.loggingEnabled)
 					Log.i(TAG, "current downloading task:" + imageLoadingExecutor.getActiveCount() + "Pool size is" +
 							configuration.threadPoolSize);
+				
 			}
 
 			if (options.isShowStubImage()) {
