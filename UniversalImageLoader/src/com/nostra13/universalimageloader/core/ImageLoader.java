@@ -5,7 +5,8 @@ import java.util.Collections;
 import java.util.Map;
 import java.util.WeakHashMap;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 import android.content.res.Configuration;
@@ -38,8 +39,8 @@ public class ImageLoader {
 	private static final String LOG_LOAD_IMAGE_FROM_MEMORY_CACHE = "Load image from memory cache [%s]";
 
 	private ImageLoaderConfiguration configuration;
-	private ExecutorService imageLoadingExecutor;
-	private ExecutorService cachedImageLoadingExecutor;
+	private ThreadPoolExecutor cachedImageLoadingExecutor;
+	private ThreadPoolExecutor imageLoadingExecutor;
 	private ImageLoadingListener emptyListener;
 
 	private Map<ImageView, String> cacheKeyForImageView = Collections.synchronizedMap(new WeakHashMap<ImageView, String>());
@@ -191,7 +192,7 @@ public class ImageLoader {
 
 		Bitmap bmp = configuration.memoryCache.get(memoryCacheKey);
 		if (bmp != null && !bmp.isRecycled()) {
-			if (configuration.loggingEnabled) Log.i(TAG, String.format(LOG_LOAD_IMAGE_FROM_MEMORY_CACHE, memoryCacheKey));
+			if (ImageLoaderConfiguration.loggingEnabled) Log.i(TAG, String.format(LOG_LOAD_IMAGE_FROM_MEMORY_CACHE, memoryCacheKey));
 			listener.onLoadingStarted();
 			imageView.setImageBitmap(bmp);
 			listener.onLoadingComplete();
@@ -206,6 +207,9 @@ public class ImageLoader {
 				cachedImageLoadingExecutor.submit(displayImageTask);
 			} else {
 				imageLoadingExecutor.submit(displayImageTask);
+				if (ImageLoaderConfiguration.loggingEnabled)
+					Log.i(TAG, "current downloading task:" + imageLoadingExecutor.getActiveCount() + "Pool size is" +
+							configuration.threadPoolSize);
 			}
 
 			if (options.isShowStubImage()) {
@@ -218,10 +222,20 @@ public class ImageLoader {
 
 	private void checkExecutors() {
 		if (imageLoadingExecutor == null || imageLoadingExecutor.isShutdown()) {
-			imageLoadingExecutor = Executors.newFixedThreadPool(configuration.threadPoolSize, configuration.displayImageThreadFactory);
+			//imageLoadingExecutor = (ThreadPoolExecutor)Executors.newFixedThreadPool(
+			//		configuration.threadPoolSize, configuration.displayImageThreadFactory);
+			int nThreads = configuration.threadPoolSize;
+			imageLoadingExecutor = new ThreadPoolExecutor(nThreads, nThreads,
+                                      0L, TimeUnit.MILLISECONDS,
+                                      new LinkedBlockingQueue<Runnable>(),
+                                      configuration.displayImageThreadFactory);
 		}
 		if (cachedImageLoadingExecutor == null || cachedImageLoadingExecutor.isShutdown()) {
-			cachedImageLoadingExecutor = Executors.newSingleThreadExecutor(configuration.displayImageThreadFactory);
+			//cachedImageLoadingExecutor = (ThreadPoolExecutor)Executors.newSingleThreadExecutor(configuration.displayImageThreadFactory);
+			cachedImageLoadingExecutor = new ThreadPoolExecutor(1, 1,
+                                    		0L, TimeUnit.MILLISECONDS,
+                                    		new LinkedBlockingQueue<Runnable>(),
+                                    		configuration.displayImageThreadFactory);
 		}
 	}
 
