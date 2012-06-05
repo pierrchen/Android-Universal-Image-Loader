@@ -222,7 +222,7 @@ public class ImageLoader {
 			if (isImageCachedOnDisc) {
 				cachedImageLoadingExecutor.submit(displayImageTask);
 			} else {
-				//makeSureThreadPoolIsNotTooFull();
+				makeSureThreadPoolIsNotTooFull();
 				Future<?> future = imageLoadingExecutor.submit(displayImageTask);
 				recordTheTask(url,future);
 			}

@@ -102,6 +102,17 @@ final class LoadAndDisplayImageTask implements Runnable {
 		}
 		return imageViewWasReused;
 	}
+	
+	//For Test only
+	private boolean needSlowDown(String url){
+		
+		return url.contains("495") ||
+			   url.contains("517") ||
+			   url.contains("556") ||
+			   url.contains("535") ||
+			   url.contains("590") ;
+			   
+	}
 
 	private Bitmap loadBitmap() {
 		File imageFile = configuration.discCache.get(imageLoadingInfo.url);
@@ -124,20 +135,7 @@ final class LoadAndDisplayImageTask implements Runnable {
 			URL imageUrlForDecoding;
 			if (imageLoadingInfo.options.isCacheOnDisc()) {
 			
-				//Pierr - making the downloading longer than needed
-				
-//				try{
-//					
-//					if(imageLoadingInfo.url.contains("p943444495")){
-//						//make the first picture take longer to download
-//						Log.d(ImageLoader.TAG, "->>> wait 15 seconds...");
-//						Thread.sleep(20000);
-//					} else {
-//						Thread.sleep(5000);
-//					}
-//				}catch(InterruptedException ex){
-//					ex.printStackTrace();
-//				}
+			
 
 
 				if (ImageLoaderConfiguration.loggingEnabled) Log.i(ImageLoader.TAG, String.format(LOG_CACHE_IMAGE_ON_DISC, imageLoadingInfo.memoryCacheKey));
@@ -215,6 +213,18 @@ final class LoadAndDisplayImageTask implements Runnable {
 
 		InputStream is = null;
 		try {
+			//Pierr - making the downloading longer 
+			try{
+				if(needSlowDown(imageLoadingInfo.url)){
+					//make the first picture take longer to download
+					Log.d(ImageLoader.TAG, "->>> wait 10 seconds...");
+					Thread.sleep(30000);
+				} 
+			}catch(InterruptedException ex){
+				//ex.printStackTrace();
+				Log.d(ImageLoader.TAG,"hey..I was interrupted...");
+			}
+			
 			is = configuration.downloader.getStream(new URL(imageLoadingInfo.url));
 			OutputStream os = new BufferedOutputStream(new FileOutputStream(targetFile));
 			try {
