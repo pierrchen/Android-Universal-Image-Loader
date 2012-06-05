@@ -2,10 +2,15 @@ package com.nostra13.universalimageloader.core;
 
 import java.lang.reflect.Field;
 import java.util.Collections;
+import java.util.LinkedList;
 import java.util.Map;
+import java.util.Queue;
 import java.util.WeakHashMap;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 import android.content.res.Configuration;
 import android.graphics.Bitmap;
@@ -16,10 +21,10 @@ import android.widget.ImageView;
 
 import com.nostra13.universalimageloader.cache.disc.DiscCacheAware;
 import com.nostra13.universalimageloader.cache.memory.MemoryCacheAware;
-import com.nostra13.universalimageloader.core.assist.FailReason;
 import com.nostra13.universalimageloader.core.assist.ImageLoadingListener;
 import com.nostra13.universalimageloader.core.assist.ImageSize;
 import com.nostra13.universalimageloader.core.assist.MemoryCacheKeyUtil;
+import com.nostra13.universalimageloader.core.assist.SimpleImageLoadingListener;
 
 /**
  * Singletone for image loading and displaying at {@link ImageView ImageViews}<br />
@@ -37,10 +42,11 @@ public class ImageLoader {
 	private static final String LOG_LOAD_IMAGE_FROM_MEMORY_CACHE = "Load image from memory cache [%s]";
 
 	private ImageLoaderConfiguration configuration;
-	private ExecutorService imageLoadingExecutor;
-	private ExecutorService cachedImageLoadingExecutor;
+	private ThreadPoolExecutor cachedImageLoadingExecutor;
+	private ThreadPoolExecutor imageLoadingExecutor;
 	private ImageLoadingListener emptyListener;
 
+	private Queue<Future<?>> imageLoadingTaskFIFO;
 	private Map<ImageView, String> cacheKeyForImageView = Collections.synchronizedMap(new WeakHashMap<ImageView, String>());
 
 	private volatile static ImageLoader instance;
@@ -58,10 +64,11 @@ public class ImageLoader {
 	}
 
 	private ImageLoader() {
+		imageLoadingTaskFIFO = new LinkedList<Future<?>>();
 	}
 
 	/**
-	 * Initializes ImageLoader's singletone instance with configuration. Method shoiuld be called <b>once</b> (each
+	 * initializes imageloader's singletone instance with configuration. Method shoiuld be called <b>once</b> (each
 	 * following call will have no effect)<br />
 	 * 
 	 * @param configuration
@@ -75,7 +82,7 @@ public class ImageLoader {
 		}
 		if (this.configuration == null) {
 			this.configuration = configuration;
-			emptyListener = new EmptyListener();
+			emptyListener = new SimpleImageLoadingListener();
 		}
 	}
 
@@ -192,7 +199,7 @@ public class ImageLoader {
 
 		Bitmap bmp = configuration.memoryCache.get(memoryCacheKey);
 		if (bmp != null && !bmp.isRecycled()) {
-			if (configuration.loggingEnabled) Log.i(TAG, String.format(LOG_LOAD_IMAGE_FROM_MEMORY_CACHE, memoryCacheKey));
+			if (ImageLoaderConfiguration.loggingEnabled) Log.i(TAG, String.format(LOG_LOAD_IMAGE_FROM_MEMORY_CACHE, memoryCacheKey));
 			listener.onLoadingStarted();
 			imageView.setImageBitmap(bmp);
 			listener.onLoadingComplete();
@@ -202,10 +209,18 @@ public class ImageLoader {
 
 			ImageLoadingInfo imageLoadingInfo = new ImageLoadingInfo(url, imageView, targetSize, options, listener);
 			LoadAndDisplayImageTask displayImageTask = new LoadAndDisplayImageTask(configuration, imageLoadingInfo, new Handler());
-			if (displayImageTask.isImageCachedOnDisc()) {
+			boolean isImageCachedOnDisc = configuration.discCache.get(url).exists();
+			if (isImageCachedOnDisc) {
 				cachedImageLoadingExecutor.submit(displayImageTask);
 			} else {
-				imageLoadingExecutor.submit(displayImageTask);
+				if (imageLoadingExecutor.getActiveCount() == 2)
+					imageLoadingTaskFIFO.poll().cancel(true);
+				Future<?> future = imageLoadingExecutor.submit(displayImageTask);
+				imageLoadingTaskFIFO.add(future);
+				if (ImageLoaderConfiguration.loggingEnabled)
+					Log.i(TAG, "current downloading task:" + imageLoadingExecutor.getActiveCount() + "Pool size is" +
+							configuration.threadPoolSize);
+				
 			}
 
 			if (options.isShowStubImage()) {
@@ -218,10 +233,20 @@ public class ImageLoader {
 
 	private void checkExecutors() {
 		if (imageLoadingExecutor == null || imageLoadingExecutor.isShutdown()) {
-			imageLoadingExecutor = Executors.newFixedThreadPool(configuration.threadPoolSize, configuration.displayImageThreadFactory);
+			//imageLoadingExecutor = (ThreadPoolExecutor)Executors.newFixedThreadPool(
+			//		configuration.threadPoolSize, configuration.displayImageThreadFactory);
+			int nThreads = configuration.threadPoolSize;
+			imageLoadingExecutor = new ThreadPoolExecutor(nThreads, nThreads,
+                                      0L, TimeUnit.MILLISECONDS,
+                                      new LinkedBlockingQueue<Runnable>(),
+                                      configuration.displayImageThreadFactory);
 		}
 		if (cachedImageLoadingExecutor == null || cachedImageLoadingExecutor.isShutdown()) {
-			cachedImageLoadingExecutor = Executors.newSingleThreadExecutor(configuration.displayImageThreadFactory);
+			//cachedImageLoadingExecutor = (ThreadPoolExecutor)Executors.newSingleThreadExecutor(configuration.displayImageThreadFactory);
+			cachedImageLoadingExecutor = new ThreadPoolExecutor(1, 1,
+                                    		0L, TimeUnit.MILLISECONDS,
+                                    		new LinkedBlockingQueue<Runnable>(),
+                                    		configuration.displayImageThreadFactory);
 		}
 	}
 
@@ -255,6 +280,11 @@ public class ImageLoader {
 		}
 	}
 
+	/** Returns URL of image which is loading at this moment into passed {@link ImageView} */
+	public String getLoadingUrlForView(ImageView imageView) {
+		return cacheKeyForImageView.get(imageView);
+	}
+
 	/**
 	 * Cancel the task of loading and displaying image for passed {@link ImageView}.
 	 * 
@@ -265,20 +295,34 @@ public class ImageLoader {
 		cacheKeyForImageView.remove(imageView);
 	}
 
-	/** Stops all running display image tasks, discards all other scheduled tasks */
+	/** 
+	 * Stops all running display image tasks, discards all other scheduled tasks 
+	 * */
 	public void stop() {
 		if (imageLoadingExecutor != null) {
-			imageLoadingExecutor.shutdown();
+			shutdownThreadPool(imageLoadingExecutor);
 		}
 		if (cachedImageLoadingExecutor != null) {
-			cachedImageLoadingExecutor.shutdown();
+			shutdownThreadPool(cachedImageLoadingExecutor);
 		}
 	}
-
-	String getLoadingUrlForView(ImageView imageView) {
-		return cacheKeyForImageView.get(imageView);
+	/**
+	 * shutdown all the task in the pool
+	 * @param pool which u want to shutdown immediately
+	 */
+	public void shutdownThreadPool( ExecutorService pool) {
+		pool.shutdown();
+		try {
+			pool.shutdownNow();
+			if (pool.awaitTermination(1, TimeUnit.SECONDS)) {
+				Log.e(TAG, "Pool did not terminal");
+			}
+		}catch (InterruptedException ie){
+			pool.shutdownNow();
+			Thread.currentThread().interrupt();
+		}
 	}
-
+	
 	/**
 	 * Defines image size for loading at memory (for memory economy) by {@link ImageView} parameters.<br />
 	 * Size computing algorithm:<br />
@@ -331,19 +375,5 @@ public class ImageLoader {
 			}
 		}
 		return new ImageSize(width, height);
-	}
-
-	private class EmptyListener implements ImageLoadingListener {
-		@Override
-		public void onLoadingStarted() { // Do nothing
-		}
-
-		@Override
-		public void onLoadingFailed(FailReason failReason) { // Do nothing
-		}
-
-		@Override
-		public void onLoadingComplete() { // Do nothing
-		}
 	}
 }
