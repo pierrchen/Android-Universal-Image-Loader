@@ -12,6 +12,8 @@ import java.net.MalformedURLException;
 import java.net.SocketTimeoutException;
 import java.net.URL;
 
+import junit.framework.Assert;
+
 import android.graphics.Bitmap;
 import android.os.Handler;
 import android.util.Log;
@@ -119,13 +121,16 @@ final class LoadAndDisplayImageTask implements Runnable {
 
 		Bitmap bitmap = null;
 		try {
-			// Try to load image from disc cache
+			// TODO: partial image won't be in the disck cache , will be download again...
 			if (imageFile.exists()) {
 				if (ImageLoaderConfiguration.loggingEnabled) Log.i(ImageLoader.TAG, String.format(LOG_LOAD_IMAGE_FROM_DISC_CACHE, imageLoadingInfo.memoryCacheKey));
 
 				Bitmap b = decodeImage(imageFile.toURL());
 				if (b != null) {
 					return b;
+				} else {
+					//TODO:iamgeFile could be partial ...
+					Log.d(ImageLoader.TAG, "incomplete image file on cache " + imageFile);
 				}
 			}
 
@@ -134,12 +139,7 @@ final class LoadAndDisplayImageTask implements Runnable {
 
 			URL imageUrlForDecoding;
 			if (imageLoadingInfo.options.isCacheOnDisc()) {
-			
-			
-
-
 				if (ImageLoaderConfiguration.loggingEnabled) Log.i(ImageLoader.TAG, String.format(LOG_CACHE_IMAGE_ON_DISC, imageLoadingInfo.memoryCacheKey));
-
 				saveImageOnDisc(imageFile);
 				configuration.discCache.put(imageLoadingInfo.url, imageFile);
 				imageUrlForDecoding = imageFile.toURL();
@@ -155,7 +155,12 @@ final class LoadAndDisplayImageTask implements Runnable {
 			if (imageFile.exists()) {
 				imageFile.delete();
 			}
-		} catch (OutOfMemoryError e) {
+		} catch (InterruptedException e){
+			Log.e(ImageLoader.TAG, e.getMessage(), e);
+			//fireImageLoadingFailedEvent(FailReason.IO_ERROR);
+			
+		}
+		catch (OutOfMemoryError e) {
 			Log.e(ImageLoader.TAG, e.getMessage(), e);
 			fireImageLoadingFailedEvent(FailReason.OUT_OF_MEMORY);
 		} catch (Throwable e) {
@@ -209,28 +214,37 @@ final class LoadAndDisplayImageTask implements Runnable {
 		return result;
 	}
 
-	private void saveImageOnDisc(File targetFile) throws MalformedURLException, IOException {
+	private void saveImageOnDisc(File targetFile) throws MalformedURLException, IOException , InterruptedException {
 
 		InputStream is = null;
 		try {
-			//Pierr - making the downloading longer 
-			try{
-				if(needSlowDown(imageLoadingInfo.url)){
-					//make the first picture take longer to download
-					Log.d(ImageLoader.TAG, "->>> wait 10 seconds...");
-					Thread.sleep(30000);
-				} 
-			}catch(InterruptedException ex){
-				//ex.printStackTrace();
-				Log.d(ImageLoader.TAG,"hey..I was interrupted...");
-			}
 			
+			Log.d(ImageLoader.TAG, "thread downloading " + imageLoadingInfo.url + "interrupted: " + Thread.currentThread().isInterrupted());
+			
+			boolean needSlow = needSlowDown(imageLoadingInfo.url);
 			is = configuration.downloader.getStream(new URL(imageLoadingInfo.url));
 			OutputStream os = new BufferedOutputStream(new FileOutputStream(targetFile));
+			
+			//somewhere say the socket creation will make the interruptFlag malfunction
+			Log.d(ImageLoader.TAG, "thread downloading 2 " + imageLoadingInfo.url + "interrupted:" + Thread.currentThread().isInterrupted());
+			
 			try {
-				FileUtils.copyStream(is, os);
+				FileUtils.copyStream(is, os , needSlow, imageLoadingInfo.url);
 				Log.i(ImageLoader.TAG , "image of " + imageLoadingInfo.url + "was saved");
+			} catch (InterruptedException e) {
+				os.flush();
+				os.close();
+				Log.d(ImageLoader.TAG, "thread downloading " + imageLoadingInfo.url + " was interrupted. " +  
+									   " Interrupt Flag " + Thread.currentThread().isInterrupted() + 
+									   " saved file " + targetFile + " size " + targetFile.length());
+				//if(targetFile.length() >=0 ) 
+				{
+					Log.d(ImageLoader.TAG, targetFile.getAbsolutePath() + "exsit " + targetFile.exists());
+					//Assert.assertTrue(targetFile.exists());
+				}
+				throw new InterruptedException("Interrupted when downloading" + imageLoadingInfo.url);
 			} finally {
+				if(is != null) {is.close();}
 				os.close();
 			}
 		} catch (SocketTimeoutException ex) {
