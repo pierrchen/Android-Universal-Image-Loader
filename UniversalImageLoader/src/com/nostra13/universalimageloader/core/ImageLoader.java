@@ -2,7 +2,9 @@ package com.nostra13.universalimageloader.core;
 
 import java.lang.reflect.Field;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.LinkedList;
+import java.util.List;
 import java.util.Map;
 import java.util.Queue;
 import java.util.WeakHashMap;
@@ -11,6 +13,8 @@ import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+
+import junit.framework.Assert;
 
 import android.content.res.Configuration;
 import android.graphics.Bitmap;
@@ -46,7 +50,11 @@ public class ImageLoader {
 	private ThreadPoolExecutor imageLoadingExecutor;
 	private ImageLoadingListener emptyListener;
 
-	private Queue<Future<?>> imageLoadingTaskFIFO;
+	//tasks that have been submitted but not finished.
+	private Queue<String> submittedTaskQueue = new LinkedList<String>();
+	
+	//URl=>Futures pairs for the submitted tasks
+	private Map<String , Future<?>> submittedTaskMap = Collections.synchronizedMap(new WeakHashMap<String , Future<?>>());
 	private Map<ImageView, String> cacheKeyForImageView = Collections.synchronizedMap(new WeakHashMap<ImageView, String>());
 
 	private volatile static ImageLoader instance;
@@ -64,7 +72,7 @@ public class ImageLoader {
 	}
 
 	private ImageLoader() {
-		imageLoadingTaskFIFO = new LinkedList<Future<?>>();
+		//empty
 	}
 
 	/**
@@ -194,7 +202,8 @@ public class ImageLoader {
 		ImageSize targetSize = getImageSizeScaleTo(imageView);
 		String memoryCacheKey = MemoryCacheKeyUtil.generateKey(url, targetSize);
 		
-		Log.d(TAG,"ImageViewCache:"+imageView + ":" + memoryCacheKey);
+		Log.d(TAG,"load & display image at " + url);
+		//Log.d(TAG,"ImageViewCache:"+imageView + ":" + memoryCacheKey);
 		cacheKeyForImageView.put(imageView, memoryCacheKey);
 
 		Bitmap bmp = configuration.memoryCache.get(memoryCacheKey);
@@ -213,14 +222,9 @@ public class ImageLoader {
 			if (isImageCachedOnDisc) {
 				cachedImageLoadingExecutor.submit(displayImageTask);
 			} else {
-				if (imageLoadingExecutor.getActiveCount() == 2)
-					imageLoadingTaskFIFO.poll().cancel(true);
+				//makeSureThreadPoolIsNotTooFull();
 				Future<?> future = imageLoadingExecutor.submit(displayImageTask);
-				imageLoadingTaskFIFO.add(future);
-				if (ImageLoaderConfiguration.loggingEnabled)
-					Log.i(TAG, "current downloading task:" + imageLoadingExecutor.getActiveCount() + "Pool size is" +
-							configuration.threadPoolSize);
-				
+				recordTheTask(url,future);
 			}
 
 			if (options.isShowStubImage()) {
@@ -229,6 +233,50 @@ public class ImageLoader {
 				imageView.setImageBitmap(null);
 			}
 		}
+	}
+	
+	
+	private void makeSureThreadPoolIsNotTooFull() {
+		
+		if (ImageLoaderConfiguration.loggingEnabled){
+			Log.i(TAG, "activating downloading tasks:" + imageLoadingExecutor.getActiveCount() + " Pool size is " +
+					configuration.threadPoolSize);
+		}
+		//TODO:make it a configuration
+		int SPACE_THREAD_NUMBER = 0;
+		if ((configuration.threadPoolSize - imageLoadingExecutor.getActiveCount()) <= SPACE_THREAD_NUMBER){
+			Assert.assertEquals(submittedTaskQueue.size(), submittedTaskMap.size());			
+			//find the oldest unfinished task..
+			Iterator<String> it = submittedTaskQueue.iterator();
+			//the task in this list is either finished or has just been canceled
+			Queue<String> toBeRemoved = new LinkedList<String>();
+			while(it.hasNext()){
+					String oldestTask = it.next();
+					Assert.assertNotNull(oldestTask);
+					toBeRemoved.offer(oldestTask);
+					Future<?> f= submittedTaskMap.remove(oldestTask);
+					Log.d(ImageLoader.TAG, "CHECK:task for " + oldestTask + " has Finished : " + f.isDone());
+					if(f != null && !f.isDone()){
+						Log.d(ImageLoader.TAG, "CHECK:cancel Task " + oldestTask);
+						f.cancel(true);
+						break;
+					}
+			}
+			
+			Iterator<String> it2 = toBeRemoved.iterator();
+			while(it2.hasNext()){
+				submittedTaskQueue.remove(it2.next());
+			}
+			
+			Assert.assertEquals(submittedTaskQueue.size(), submittedTaskMap.size());
+			
+		}
+		
+	}
+	
+	private void recordTheTask(String url, Future<?> future){
+		submittedTaskQueue.add(url);
+		submittedTaskMap.put(url, future);
 	}
 
 	private void checkExecutors() {

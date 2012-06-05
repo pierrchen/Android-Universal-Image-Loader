@@ -31,7 +31,7 @@ import com.nostra13.universalimageloader.utils.FileUtils;
  */
 final class LoadAndDisplayImageTask implements Runnable {
 
-	private static final String LOG_START_DISPLAY_IMAGE_TASK = "Start display image task [%s]";
+	private static final String LOG_START_DISPLAY_IMAGE_TASK = "Start load & display image task [%s]";
 	private static final String LOG_LOAD_IMAGE_FROM_INTERNET = "Load image from Internet [%s]";
 	private static final String LOG_LOAD_IMAGE_FROM_DISC_CACHE = "Load image from disc cache [%s]";
 	private static final String LOG_CACHE_IMAGE_IN_MEMORY = "Cache image in memory [%s]";
@@ -56,13 +56,13 @@ final class LoadAndDisplayImageTask implements Runnable {
 		if (ImageLoaderConfiguration.loggingEnabled) Log.i(ImageLoader.TAG, String.format(LOG_START_DISPLAY_IMAGE_TASK, imageLoadingInfo.memoryCacheKey));
 		
 		//TODO: just for make downloading slow
-		try {
-			Thread.sleep(10000);
-		} catch (InterruptedException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-
-		}
+//		try {
+//			Thread.sleep(10000);
+//		} catch (InterruptedException e) {
+//			// TODO Auto-generated catch block
+//			e.printStackTrace();
+//
+//		}
 		
 		if (checkTaskIsNotActual()) return;
 		Bitmap bmp = loadBitmap();
