@@ -1,6 +1,6 @@
 package com.nostra13.universalimageloader.core;
 
-import android.util.Log;
+
 import android.widget.ImageView;
 
 import com.nostra13.universalimageloader.core.assist.ImageLoadingListener;
@@ -24,7 +24,7 @@ final class ImageLoadingInfo {
 	final DisplayImageOptions options;
 	final ImageLoadingListener listener;
 	
-	private final static String TAG = "ImageLoadingInfo";
+	//private final static String TAG = "ImageLoadingInfo";
 
 	public ImageLoadingInfo(String url, ImageView imageView, ImageSize targetSize, DisplayImageOptions options, ImageLoadingListener listener) {
 		this.url = url;
@@ -37,11 +37,4 @@ final class ImageLoadingInfo {
 		//Log.d(TAG, "imageView" + this.imageView + " -> " + "url " + url);
 	}
 
-	/** Whether image URL of this task matches to URL which corresponds to current ImageView */
-	boolean isConsistent() {
-		String currentCacheKey = ImageLoader.getInstance().getLoadingUrlForView(imageView);
-		//Log.d(TAG, "check Consistent " + imageView + " urlKey " + currentCacheKey);
-		// Check whether memory cache key (image URL) for current ImageView is actual.
-		return memoryCacheKey.equals(currentCacheKey);
-	}
 }

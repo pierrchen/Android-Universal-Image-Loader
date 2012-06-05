@@ -1,15 +1,16 @@
 package com.nostra13.universalimageloader.core;
 
-import java.io.BufferedInputStream;
+
+import java.io.BufferedOutputStream;
 import java.io.EOFException;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.MalformedURLException;
 import java.net.SocketTimeoutException;
 import java.net.URL;
-import java.net.URLConnection;
 
 import android.graphics.Bitmap;
 import android.os.Handler;
@@ -17,6 +18,7 @@ import android.util.Log;
 import android.widget.ImageView;
 
 import com.nostra13.universalimageloader.core.assist.FailReason;
+import com.nostra13.universalimageloader.core.assist.ImageLoadingListener;
 import com.nostra13.universalimageloader.utils.FileUtils;
 
 /**
@@ -34,6 +36,7 @@ final class LoadAndDisplayImageTask implements Runnable {
 	private static final String LOG_LOAD_IMAGE_FROM_DISC_CACHE = "Load image from disc cache [%s]";
 	private static final String LOG_CACHE_IMAGE_IN_MEMORY = "Cache image in memory [%s]";
 	private static final String LOG_CACHE_IMAGE_ON_DISC = "Cache image on disc [%s]";
+	private static final String LOG_DISPLAY_IMAGE_IN_IMAGEVIEW = "Display image in ImageView [%s]";
 
 	private static final int ATTEMPT_COUNT_TO_DECODE_BITMAP = 3;
 
@@ -49,54 +52,78 @@ final class LoadAndDisplayImageTask implements Runnable {
 
 	@Override
 	public void run() {
-		if (configuration.loggingEnabled) Log.i(ImageLoader.TAG, String.format(LOG_START_DISPLAY_IMAGE_TASK, imageLoadingInfo.memoryCacheKey));
-		if (!imageLoadingInfo.isConsistent()) {
-			Log.w(ImageLoader.TAG, "--->>>>>>inconsitent View and URL");
-			return;
-		}
 
+		if (ImageLoaderConfiguration.loggingEnabled) Log.i(ImageLoader.TAG, String.format(LOG_START_DISPLAY_IMAGE_TASK, imageLoadingInfo.memoryCacheKey));
+		
+		//TODO: just for make downloading slow
+		try {
+			Thread.sleep(10000);
+		} catch (InterruptedException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+
+		}
+		
+		if (checkTaskIsNotActual()) return;
 		Bitmap bmp = loadBitmap();
-		if (bmp == null) {
-			Log.e(ImageLoader.TAG,"Failed to load the bitmap for " + imageLoadingInfo.url);
-			return;
-		}
-		if (!imageLoadingInfo.isConsistent()) {
-			Log.d(ImageLoader.TAG, ">>>!!inconsitent" + "view " + imageLoadingInfo.imageView + " should bind with " 
-						+ ImageLoader.getInstance().getLoadingUrlForView(imageLoadingInfo.imageView) + " url " + imageLoadingInfo.url 
-						+ " is out of date. Don't display this image."
-					);
-			return;
-		}
 
+		if (bmp == null) return;
+
+		if (checkTaskIsNotActual()) return;
 		if (imageLoadingInfo.options.isCacheInMemory()) {
-			if (configuration.loggingEnabled) Log.i(ImageLoader.TAG, String.format(LOG_CACHE_IMAGE_IN_MEMORY, imageLoadingInfo.memoryCacheKey));
+			if (ImageLoaderConfiguration.loggingEnabled) Log.i(ImageLoader.TAG, String.format(LOG_CACHE_IMAGE_IN_MEMORY, imageLoadingInfo.memoryCacheKey));
+
 			configuration.memoryCache.put(imageLoadingInfo.memoryCacheKey, bmp);
 		}
 
-		DisplayBitmapTask displayBitmapTask = new DisplayBitmapTask(configuration, imageLoadingInfo, bmp);
+		if (checkTaskIsNotActual()) return;
+		if (ImageLoaderConfiguration.loggingEnabled) Log.i(ImageLoader.TAG, String.format(LOG_DISPLAY_IMAGE_IN_IMAGEVIEW, imageLoadingInfo.memoryCacheKey));
+
+		DisplayBitmapTask displayBitmapTask = new DisplayBitmapTask(bmp, imageLoadingInfo.imageView, imageLoadingInfo.listener);
 		handler.post(displayBitmapTask);
 	}
 
+	/**
+	 * Check whether the image URL of this task matches to image URL which is actual for current ImageView at this
+	 * moment and fire {@link ImageLoadingListener#onLoadingCancelled()} event if it doesn't.
+	 */
+	boolean checkTaskIsNotActual() {
+		String currentCacheKey = ImageLoader.getInstance().getLoadingUrlForView(imageLoadingInfo.imageView);
+		// Check whether memory cache key (image URL) for current ImageView is actual. 
+		// If ImageView is reused for another task then current task should be cancelled.
+		boolean imageViewWasReused = !imageLoadingInfo.memoryCacheKey.equals(currentCacheKey);
+		if (imageViewWasReused) {
+			handler.post(new Runnable() {
+				@Override
+				public void run() {
+					imageLoadingInfo.listener.onLoadingCancelled();
+				}
+			});
+		}
+		return imageViewWasReused;
+	}
+
 	private Bitmap loadBitmap() {
-		File f = configuration.discCache.get(imageLoadingInfo.url);
+		File imageFile = configuration.discCache.get(imageLoadingInfo.url);
 
 		Bitmap bitmap = null;
 		try {
 			// Try to load image from disc cache
-			if (f.exists()) {
-				if (configuration.loggingEnabled) Log.i(ImageLoader.TAG, String.format(LOG_LOAD_IMAGE_FROM_DISC_CACHE, imageLoadingInfo.memoryCacheKey));
-				Bitmap b = decodeImage(f.toURL());
+			if (imageFile.exists()) {
+				if (ImageLoaderConfiguration.loggingEnabled) Log.i(ImageLoader.TAG, String.format(LOG_LOAD_IMAGE_FROM_DISC_CACHE, imageLoadingInfo.memoryCacheKey));
+
+				Bitmap b = decodeImage(imageFile.toURL());
 				if (b != null) {
 					return b;
 				}
 			}
 
 			// Load image from Web
-			if (configuration.loggingEnabled) Log.i(ImageLoader.TAG, String.format(LOG_LOAD_IMAGE_FROM_INTERNET, imageLoadingInfo.memoryCacheKey));
+			if (ImageLoaderConfiguration.loggingEnabled) Log.i(ImageLoader.TAG, String.format(LOG_LOAD_IMAGE_FROM_INTERNET, imageLoadingInfo.memoryCacheKey));
+
 			URL imageUrlForDecoding;
 			if (imageLoadingInfo.options.isCacheOnDisc()) {
-				if (configuration.loggingEnabled) Log.i(ImageLoader.TAG, String.format(LOG_CACHE_IMAGE_ON_DISC, imageLoadingInfo.memoryCacheKey));
-				
+			
 				//Pierr - making the downloading longer than needed
 				
 //				try{
@@ -112,9 +139,13 @@ final class LoadAndDisplayImageTask implements Runnable {
 //					ex.printStackTrace();
 //				}
 
-				saveImageOnDisc(f);
-				configuration.discCache.put(imageLoadingInfo.url, f);
-				imageUrlForDecoding = f.toURL();
+
+				if (ImageLoaderConfiguration.loggingEnabled) Log.i(ImageLoader.TAG, String.format(LOG_CACHE_IMAGE_ON_DISC, imageLoadingInfo.memoryCacheKey));
+
+				saveImageOnDisc(imageFile);
+				configuration.discCache.put(imageLoadingInfo.url, imageFile);
+				imageUrlForDecoding = imageFile.toURL();
+
 			} else {
 				imageUrlForDecoding = new URL(imageLoadingInfo.url);
 			}
@@ -123,8 +154,8 @@ final class LoadAndDisplayImageTask implements Runnable {
 		} catch (IOException e) {
 			Log.e(ImageLoader.TAG, e.getMessage(), e);
 			fireImageLoadingFailedEvent(FailReason.IO_ERROR);
-			if (f.exists()) {
-				f.delete();
+			if (imageFile.exists()) {
+				imageFile.delete();
 			}
 		} catch (OutOfMemoryError e) {
 			Log.e(ImageLoader.TAG, e.getMessage(), e);
@@ -136,79 +167,71 @@ final class LoadAndDisplayImageTask implements Runnable {
 		return bitmap;
 	}
 
-	boolean isImageCachedOnDisc() {
-		File f = configuration.discCache.get(imageLoadingInfo.url);
-		return f.exists();
-	}
-
 	private Bitmap decodeImage(URL imageUrl) throws IOException {
 		Bitmap bmp = null;
-		ImageDecoder decoder = new ImageDecoder(imageUrl, imageLoadingInfo.targetSize, imageLoadingInfo.options.getDecodingType());
+		ImageDecoder decoder = new ImageDecoder(imageUrl, configuration.downloader, imageLoadingInfo.targetSize, imageLoadingInfo.options.getDecodingType());
 
 		if (configuration.handleOutOfMemory) {
-			for (int attempt = 1; attempt <= ATTEMPT_COUNT_TO_DECODE_BITMAP; attempt++) {
-				try {
-					bmp = decoder.decodeFile();
-					break;
-				} catch (OutOfMemoryError e) {
-					Log.e(ImageLoader.TAG, e.getMessage(), e);
-
-					switch (attempt) {
-						case 1:
-							System.gc();
-							break;
-						case 2:
-							configuration.memoryCache.clear();
-							System.gc();
-							break;
-						case 3:
-							throw e;
-					}
-					// Wait some time while GC is working
-					try {
-						Thread.sleep(attempt * 1000);
-					} catch (InterruptedException ie) {
-						Log.e(ImageLoader.TAG, ie.getMessage(), ie);
-					}
-				}
-			}
+			bmp = decodeWithOOMHandling(decoder);
 		} else {
-			bmp = decoder.decodeFile();
+			bmp = decoder.decode();
 		}
 
 		decoder = null;
 		return bmp;
 	}
 
+	private Bitmap decodeWithOOMHandling(ImageDecoder decoder) throws IOException {
+		Bitmap result = null;
+		for (int attempt = 1; attempt <= ATTEMPT_COUNT_TO_DECODE_BITMAP; attempt++) {
+			try {
+				result = decoder.decode();
+			} catch (OutOfMemoryError e) {
+				Log.e(ImageLoader.TAG, e.getMessage(), e);
+
+				switch (attempt) {
+					case 1:
+						System.gc();
+						break;
+					case 2:
+						configuration.memoryCache.clear();
+						System.gc();
+						break;
+					case 3:
+						throw e;
+				}
+				// Wait some time while GC is working
+				try {
+					Thread.sleep(attempt * 1000);
+				} catch (InterruptedException ie) {
+					Log.e(ImageLoader.TAG, ie.getMessage(), ie);
+				}
+			}
+		}
+		return result;
+	}
+
 	private void saveImageOnDisc(File targetFile) throws MalformedURLException, IOException {
-		URLConnection conn = new URL(imageLoadingInfo.url).openConnection();
-		conn.setConnectTimeout(configuration.httpConnectTimeout);
-		conn.setReadTimeout(configuration.httpReadTimeout);
-		
-		BufferedInputStream is = null;
-		
+
+		InputStream is = null;
 		try {
-			
-			is = new BufferedInputStream(conn.getInputStream());
-			OutputStream os = new FileOutputStream(targetFile);
+			is = configuration.downloader.getStream(new URL(imageLoadingInfo.url));
+			OutputStream os = new BufferedOutputStream(new FileOutputStream(targetFile));
 			try {
 				FileUtils.copyStream(is, os);
-				Log.d(ImageLoader.TAG, "image of " + imageLoadingInfo.url + "was saved");
+				Log.i(ImageLoader.TAG , "image of " + imageLoadingInfo.url + "was saved");
 			} finally {
 				os.close();
 			}
-		}catch(SocketTimeoutException ex){
-			//Log.d(ImageLoader.TAG, "SocketTimeoutException when connecting to " + imageLoadingInfo.url);
-			throw new IOException("SocketTimeoutException when downloading " + imageLoadingInfo.url);
-		}catch(EOFException ex) {
-			//https://code.google.com/p/google-http-java-client/issues/detail?id=116
-			//Log.d(ImageLoader.TAG, "EOFException when downloading " + imageLoadingInfo.url);
-			throw new IOException("EOFException when downloading " + imageLoadingInfo.url);
-		}
-		finally {
-			if(is != null){
+		} catch (SocketTimeoutException ex) {
+			throw new IOException("SocketTimeoutException when downloading" + imageLoadingInfo.url);
+		} catch (EOFException ex) {
+			// https://code.google.com/p/google-http-java-client/issues/detail?id=116 
+			throw new IOException("EOFException when downloading" + imageLoadingInfo.url);
+		} finally {
+			if (is != null)
 				is.close();
-			}
+
 		}
 	}
 
