@@ -8,6 +8,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.RandomAccessFile;
 import java.net.MalformedURLException;
 import java.net.SocketTimeoutException;
 import java.net.URL;
@@ -45,6 +46,9 @@ final class LoadAndDisplayImageTask implements Runnable {
 	private final ImageLoaderConfiguration configuration;
 	private final ImageLoadingInfo imageLoadingInfo;
 	private final Handler handler;
+	
+	//TODO:make it a configuration
+	private boolean savePartialAndResume = true;
 
 	public LoadAndDisplayImageTask(ImageLoaderConfiguration configuration, ImageLoadingInfo imageLoadingInfo, Handler handler) {
 		this.configuration = configuration;
@@ -217,41 +221,50 @@ final class LoadAndDisplayImageTask implements Runnable {
 	private void saveImageOnDisc(File targetFile) throws MalformedURLException, IOException , InterruptedException {
 
 		InputStream is = null;
+		String url = imageLoadingInfo.url;
+		
+		RandomAccessFile outFile = null;
 		try {
 			
-			Log.d(ImageLoader.TAG, "thread downloading " + imageLoadingInfo.url + "interrupted: " + Thread.currentThread().isInterrupted());
+			Log.d(ImageLoader.TAG, "thread downloading " + url + "interrupted: " + Thread.currentThread().isInterrupted());
 			
-			boolean needSlow = needSlowDown(imageLoadingInfo.url);
-			is = configuration.downloader.getStream(new URL(imageLoadingInfo.url));
+			boolean needSlow = needSlowDown(url);
+			is = configuration.downloader.getStream(new URL(url));
 			OutputStream os = new BufferedOutputStream(new FileOutputStream(targetFile));
 			
 			//somewhere say the socket creation will make the interruptFlag malfunction
-			Log.d(ImageLoader.TAG, "thread downloading 2 " + imageLoadingInfo.url + "interrupted:" + Thread.currentThread().isInterrupted());
+			Log.d(ImageLoader.TAG, "thread downloading 2 " + url + "interrupted:" + Thread.currentThread().isInterrupted());
 			
 			try {
-				FileUtils.copyStream(is, os , needSlow, imageLoadingInfo.url);
-				Log.i(ImageLoader.TAG , "image of " + imageLoadingInfo.url + "was saved");
+				if(savePartialAndResume){
+					outFile = new RandomAccessFile(targetFile, "rw");
+					FileUtils.copyStream(is, outFile, needSlow, url);
+				}else{
+					FileUtils.copyStream(is, os , needSlow, imageLoadingInfo.url);
+				}
+				Log.i(ImageLoader.TAG , "image of " + url + "was saved");
 			} catch (InterruptedException e) {
 				os.flush();
 				os.close();
-				Log.d(ImageLoader.TAG, "thread downloading " + imageLoadingInfo.url + " was interrupted. " +  
+				
+				if(savePartialAndResume){
+					if(outFile != null) {outFile.close();}
+				}
+				Log.d(ImageLoader.TAG, "thread downloading " + url + " was interrupted. " +  
 									   " Interrupt Flag " + Thread.currentThread().isInterrupted() + 
 									   " saved file " + targetFile + " size " + targetFile.length());
-				//if(targetFile.length() >=0 ) 
-				{
-					Log.d(ImageLoader.TAG, targetFile.getAbsolutePath() + "exsit " + targetFile.exists());
-					//Assert.assertTrue(targetFile.exists());
-				}
-				throw new InterruptedException("Interrupted when downloading" + imageLoadingInfo.url);
+				
+				throw new InterruptedException("Interrupted when downloading" + url);
 			} finally {
 				if(is != null) {is.close();}
 				os.close();
+				if(outFile != null){outFile.close();}
 			}
 		} catch (SocketTimeoutException ex) {
-			throw new IOException("SocketTimeoutException when downloading" + imageLoadingInfo.url);
+			throw new IOException("SocketTimeoutException when downloading" + url);
 		} catch (EOFException ex) {
 			// https://code.google.com/p/google-http-java-client/issues/detail?id=116 
-			throw new IOException("EOFException when downloading" + imageLoadingInfo.url);
+			throw new IOException("EOFException when downloading" + url);
 		} finally {
 			if (is != null)
 				is.close();
