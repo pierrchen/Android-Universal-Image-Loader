@@ -26,6 +26,9 @@ public abstract class ImageDownloader {
 
 	/** Retrieves {@link InputStream} of image by URL (image is located in the network) */
 	protected abstract InputStream getStreamFromNetwork(URL imageUrl) throws IOException;
+	
+	
+	protected abstract InputStream getStreamFromNetwrokWithRange(URL imageUrl, long start) throws IOException;
 
 	/** Retrieves {@link InputStream} of image by URL (image is located on the local file system or SD card) */
 	protected InputStream getStreamFromFile(URL imageUrl) throws IOException {

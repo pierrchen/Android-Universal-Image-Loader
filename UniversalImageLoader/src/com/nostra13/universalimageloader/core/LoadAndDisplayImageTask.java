@@ -47,8 +47,8 @@ final class LoadAndDisplayImageTask implements Runnable {
 	private final ImageLoadingInfo imageLoadingInfo;
 	private final Handler handler;
 	
-	//TODO:make it a configuration
-	private boolean savePartialAndResume = true;
+	//feature on-off flag - as the server don't always support partial get. This should alwasy turn off
+	private boolean savePartialAndResume = false;
 
 	public LoadAndDisplayImageTask(ImageLoaderConfiguration configuration, ImageLoadingInfo imageLoadingInfo, Handler handler) {
 		this.configuration = configuration;
@@ -120,32 +120,48 @@ final class LoadAndDisplayImageTask implements Runnable {
 			   
 	}
 
+	
+	
+	
+	
+	private boolean fileExsitAndComplete(File imageFile){
+		
+		if(!savePartialAndResume){
+			return imageFile.exists();
+		} else {
+			return imageFile.exists() && !ImageLoader.isPartialDownloaded(imageFile);
+		}
+	}
 	private Bitmap loadBitmap() {
 		File imageFile = configuration.discCache.get(imageLoadingInfo.url);
 
 		Bitmap bitmap = null;
 		try {
-			// TODO: partial image won't be in the disck cache , will be download again...
-			if (imageFile.exists()) {
-				if (ImageLoaderConfiguration.loggingEnabled) Log.i(ImageLoader.TAG, String.format(LOG_LOAD_IMAGE_FROM_DISC_CACHE, imageLoadingInfo.memoryCacheKey));
-
-				Bitmap b = decodeImage(imageFile.toURL());
-				if (b != null) {
-					return b;
-				} else {
-					//TODO:iamgeFile could be partial ...
-					Log.d(ImageLoader.TAG, "incomplete image file on cache " + imageFile);
-				}
+			if (fileExsitAndComplete(imageFile)) {
+					if (ImageLoaderConfiguration.loggingEnabled) Log.i(ImageLoader.TAG, String.format(LOG_LOAD_IMAGE_FROM_DISC_CACHE, imageLoadingInfo.memoryCacheKey));
+					Bitmap b = decodeImage(imageFile.toURL());
+					if (b != null) {
+						return b;
+					} else {
+						//When decode error, go and download the image again from the Web
+						Log.w(ImageLoader.TAG, ">>>>error when decoding image file on cache " + imageFile + " partial downloaded?");
+					}
 			}
 
-			// Load image from Web
+			// Load image from Web & the file could possibly be partially downloaded
 			if (ImageLoaderConfiguration.loggingEnabled) Log.i(ImageLoader.TAG, String.format(LOG_LOAD_IMAGE_FROM_INTERNET, imageLoadingInfo.memoryCacheKey));
 
 			URL imageUrlForDecoding;
 			if (imageLoadingInfo.options.isCacheOnDisc()) {
-				if (ImageLoaderConfiguration.loggingEnabled) Log.i(ImageLoader.TAG, String.format(LOG_CACHE_IMAGE_ON_DISC, imageLoadingInfo.memoryCacheKey));
 				saveImageOnDisc(imageFile);
 				configuration.discCache.put(imageLoadingInfo.url, imageFile);
+				if(savePartialAndResume){
+					if(ImageLoader.isPartialDownloaded(imageFile)){
+						ImageLoader.clearPartialFlag(imageFile);
+					}
+				}
+				if (ImageLoaderConfiguration.loggingEnabled) Log.i(ImageLoader.TAG, String.format(LOG_CACHE_IMAGE_ON_DISC, imageLoadingInfo.memoryCacheKey));
+				
 				imageUrlForDecoding = imageFile.toURL();
 
 			} else {
@@ -161,8 +177,16 @@ final class LoadAndDisplayImageTask implements Runnable {
 			}
 		} catch (InterruptedException e){
 			Log.e(ImageLoader.TAG, e.getMessage(), e);
-			//fireImageLoadingFailedEvent(FailReason.IO_ERROR);
-			
+			if(savePartialAndResume){
+				if(imageFile.exists()){
+					ImageLoader.setAsPartial(imageFile);
+				}
+			}else{
+				if(imageFile.exists()){
+					Log.d(ImageLoader.TAG,"delete the partial download file");
+					imageFile.delete();
+				}
+			}
 		}
 		catch (OutOfMemoryError e) {
 			Log.e(ImageLoader.TAG, e.getMessage(), e);
@@ -225,24 +249,26 @@ final class LoadAndDisplayImageTask implements Runnable {
 		
 		RandomAccessFile outFile = null;
 		try {
-			
-			Log.d(ImageLoader.TAG, "thread downloading " + url + "interrupted: " + Thread.currentThread().isInterrupted());
-			
 			boolean needSlow = needSlowDown(url);
-			is = configuration.downloader.getStream(new URL(url));
+			if(savePartialAndResume && ImageLoader.isPartialDownloaded(targetFile)){
+				Log.d(ImageLoader.TAG, ">>>>Partial downloaded file detected, resume download..." + targetFile);
+				is = configuration.downloader.getStreamFromNetwrokWithRange(new URL(url), targetFile.length());
+			}else{
+				is = configuration.downloader.getStream(new URL(url));
+			}
 			OutputStream os = new BufferedOutputStream(new FileOutputStream(targetFile));
-			
 			//somewhere say the socket creation will make the interruptFlag malfunction
-			Log.d(ImageLoader.TAG, "thread downloading 2 " + url + "interrupted:" + Thread.currentThread().isInterrupted());
-			
+			//Log.d(ImageLoader.TAG, "thread downloading 2 " + url + "interrupted:" + Thread.currentThread().isInterrupted());
 			try {
 				if(savePartialAndResume){
 					outFile = new RandomAccessFile(targetFile, "rw");
+					//seek to the end of the file
+					outFile.seek(targetFile.length());
 					FileUtils.copyStream(is, outFile, needSlow, url);
 				}else{
 					FileUtils.copyStream(is, os , needSlow, imageLoadingInfo.url);
 				}
-				Log.i(ImageLoader.TAG , "image of " + url + "was saved");
+				//Log.i(ImageLoader.TAG , "image of " + url + "was saved");
 			} catch (InterruptedException e) {
 				os.flush();
 				os.close();
@@ -250,6 +276,7 @@ final class LoadAndDisplayImageTask implements Runnable {
 				if(savePartialAndResume){
 					if(outFile != null) {outFile.close();}
 				}
+				
 				Log.d(ImageLoader.TAG, "thread downloading " + url + " was interrupted. " +  
 									   " Interrupt Flag " + Thread.currentThread().isInterrupted() + 
 									   " saved file " + targetFile + " size " + targetFile.length());

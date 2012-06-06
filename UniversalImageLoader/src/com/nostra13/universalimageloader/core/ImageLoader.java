@@ -1,5 +1,6 @@
 package com.nostra13.universalimageloader.core;
 
+import java.io.File;
 import java.lang.reflect.Field;
 import java.util.Collections;
 import java.util.Iterator;
@@ -7,6 +8,8 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.WeakHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
@@ -56,6 +59,10 @@ public class ImageLoader {
 	//URl=>Futures pairs for the submitted tasks
 	private Map<String , Future<?>> submittedTaskMap = Collections.synchronizedMap(new WeakHashMap<String , Future<?>>());
 	private Map<ImageView, String> cacheKeyForImageView = Collections.synchronizedMap(new WeakHashMap<ImageView, String>());
+	
+	
+	//Files here are patial downloaded
+	private static Set<File> partialFileSet = Collections.synchronizedSet(new TreeSet<File>());
 
 	private volatile static ImageLoader instance;
 
@@ -73,6 +80,19 @@ public class ImageLoader {
 
 	private ImageLoader() {
 		//empty
+	}
+	
+	
+	public static boolean isPartialDownloaded(File file){
+		return partialFileSet.contains(file);
+	}
+	
+	public static void clearPartialFlag(File file){
+		partialFileSet.remove(file);
+	}
+	
+	public static void setAsPartial(File file){
+		partialFileSet.add(file);
 	}
 
 	/**

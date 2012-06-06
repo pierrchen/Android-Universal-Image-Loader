@@ -48,5 +48,10 @@ public class ReloadImageDownloader extends ImageDownloader {
 		
 		return new FlushedInputStream(new BufferedInputStream(conn.getInputStream()));
 	}
+	@Override
+	protected InputStream getStreamFromNetwrokWithRange(URL imageUrl, long start) throws IOException {
+		// TODO Auto-generated method stub
+		return null;
+	}
 
 }
