@@ -40,14 +40,14 @@ public final class FileUtils {
 				//Log.d(ImageLoader.TAG, "oh...Downloading" + url + "was interrupted. saved file size " + totol_size);
 				//just for test....even we received the intrrupt ,let's write something..
 				
-				int count = is.read(bytes, 0, buffer_size);
-				if (count == -1) {
-					break;
-				}
-				os.write(bytes, 0, count);
-				totol_size +=count;
-				
-				//test finish..
+//				int count = is.read(bytes, 0, buffer_size);
+//				if (count == -1) {
+//					break;
+//				}
+//				os.write(bytes, 0, count);
+//				totol_size +=count;
+//				
+//				//test finish..
 				
 				Log.d(ImageLoader.TAG, "oh...Downloading" + url + "was interrupted. saved file size " + totol_size);
 				

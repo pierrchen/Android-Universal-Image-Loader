@@ -12,7 +12,7 @@ import java.net.MalformedURLException;
 import java.net.SocketTimeoutException;
 import java.net.URL;
 
-import junit.framework.Assert;
+
 
 import android.graphics.Bitmap;
 import android.os.Handler;
@@ -158,6 +158,11 @@ final class LoadAndDisplayImageTask implements Runnable {
 		} catch (InterruptedException e){
 			Log.e(ImageLoader.TAG, e.getMessage(), e);
 			//fireImageLoadingFailedEvent(FailReason.IO_ERROR);
+			
+			//discard the partial downloaded file
+			if (imageFile.exists()) {
+				imageFile.delete();
+			}
 			
 		}
 		catch (OutOfMemoryError e) {
